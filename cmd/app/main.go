@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/sudo-init-do/devbox_api/internal/auth"
 	"github.com/sudo-init-do/devbox_api/internal/db"
 	"github.com/sudo-init-do/devbox_api/internal/health"
 )
 
 func main() {
-	// Check if a CLI command was passed
+	// Handle CLI commands (migrate, seed)
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
 
@@ -38,13 +39,24 @@ func startServer() {
 		port = "8080"
 	}
 
+	// Connect to database once
+	conn := db.ConnectDB()
+
+	// Setup routes
 	mux := http.NewServeMux()
+
+	// Health check route
 	mux.HandleFunc("/health", health.Handler)
 
-	addr := fmt.Sprintf(":%s", port)
-	log.Printf("Devbox API running on %s...\n", addr)
+	// Auth routes
+	mux.Handle("/auth/signup", auth.SignupHandler(conn))
+	mux.Handle("/auth/login", auth.LoginHandler(conn))
 
+	addr := fmt.Sprintf(":%s", port)
+	log.Printf("🚀 Devbox API running on %s...\n", addr)
+
+	// Start server
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatalf("❌ Failed to start server: %v", err)
 	}
 }
