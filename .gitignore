@@ -1,0 +1,33 @@
+# Binaries
+/devbox_api
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Logs
+*.log
+
+# IDE/editor configs
+.vscode/
+.idea/
+*.swp
+
+# Dependency directories (not needed with Go modules)
+vendor/
+
+# Docker
+**/postgres_data/
+**/redis_data/
+*.pid
+
+# Environment files
+.env
+.env.*
