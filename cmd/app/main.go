@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	// Check if a CLI command was passed (e.g., migrate, seed)
+	// Check if a CLI command was passed
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
 
@@ -42,9 +42,9 @@ func startServer() {
 	mux.HandleFunc("/health", health.Handler)
 
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf("🚀 Devbox API running on %s...\n", addr)
+	log.Printf("Devbox API running on %s...\n", addr)
 
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("❌ Failed to start server: %v", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }
