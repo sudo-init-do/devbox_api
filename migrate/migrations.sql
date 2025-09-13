@@ -1,11 +1,16 @@
 -- ======================
+-- Extensions
+-- ======================
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ======================
 -- Users Table
 -- ======================
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) DEFAULT 'creator', -- creator or admin
+    password TEXT NOT NULL, -- match Go struct: user.User.Password
+    role VARCHAR(50) DEFAULT 'creator', -- can be 'creator' or 'admin'
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -28,12 +33,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
     amount BIGINT NOT NULL,
-    type VARCHAR(50) NOT NULL, -- credit or debit
+    type VARCHAR(50) NOT NULL CHECK (type IN ('credit', 'debit')),
     reference VARCHAR(255) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
-
--- ======================
--- Extensions
--- ======================
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";

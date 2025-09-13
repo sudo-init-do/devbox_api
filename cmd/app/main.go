@@ -4,59 +4,37 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/sudo-init-do/devbox_api/internal/auth"
 	"github.com/sudo-init-do/devbox_api/internal/db"
 	"github.com/sudo-init-do/devbox_api/internal/health"
+	"github.com/sudo-init-do/devbox_api/internal/user"
 )
 
-func main() {
-	// Handle CLI commands (migrate, seed)
-	if len(os.Args) > 1 {
-		cmd := os.Args[1]
-
-		switch cmd {
-		case "migrate":
-			db.RunMigrations()
-			return
-		case "seed":
-			conn := db.ConnectDB()
-			db.Seed(conn)
-			return
-		default:
-			log.Fatalf("❌ Unknown command: %s", cmd)
-		}
-	}
-
-	// Default: run server
-	startServer()
-}
-
 func startServer() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := "8080"
 
-	// Connect to database once
+	// Connect DB once
 	conn := db.ConnectDB()
 
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// Health check route
+	// Health
 	mux.HandleFunc("/health", health.Handler)
 
+	// Initialize services
+	userService := user.NewService(conn)
+	authHandler := auth.NewHandler(userService)
+
 	// Auth routes
-	mux.Handle("/auth/signup", auth.SignupHandler(conn))
-	mux.Handle("/auth/login", auth.LoginHandler(conn))
+	mux.HandleFunc("/auth/signup", authHandler.Signup)
+	mux.HandleFunc("/auth/login", authHandler.Login)
 
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf("🚀 Devbox API running on %s...\n", addr)
+	log.Printf("Devbox API running on %s...\n", addr)
 
-	// Start server
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("❌ Failed to start server: %v", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }
