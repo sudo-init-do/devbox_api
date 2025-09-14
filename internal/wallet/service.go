@@ -2,25 +2,21 @@ package wallet
 
 import (
 	"database/sql"
-	"fmt"
 )
 
 type Service struct {
-	DB *sql.DB
+	db *sql.DB
 }
 
 func NewService(db *sql.DB) *Service {
-	return &Service{DB: db}
+	return &Service{db: db}
 }
 
-func (s *Service) CreateWallet(userID string) error {
-	query := `
-		INSERT INTO wallets (user_id, balance)
-		VALUES ($1, 0)
-	`
-	_, err := s.DB.Exec(query, userID)
-	if err != nil {
-		return fmt.Errorf("failed to create wallet: %w", err)
+func (s *Service) GetBalance(userID string) (int64, error) {
+	var balance int64
+	err := s.db.QueryRow(`SELECT balance FROM wallets WHERE user_id = $1`, userID).Scan(&balance)
+	if err == sql.ErrNoRows {
+		return 0, nil
 	}
-	return nil
+	return balance, err
 }

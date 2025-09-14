@@ -9,7 +9,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// DTOs
+type Handler struct {
+	userService *user.Service
+}
+
+func NewHandler(userService *user.Service) *Handler {
+	return &Handler{userService: userService}
+}
+
 type SignupRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -24,16 +31,11 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// Handler struct
-type Handler struct {
-	userService *user.Service
+type LoginResponse struct {
+	Token string `json:"token"`
 }
 
-func NewHandler(us *user.Service) *Handler {
-	return &Handler{userService: us}
-}
-
-// Signup handles user registration
+// Signup handles new user registration
 func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -41,26 +43,20 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// hash password
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		http.Error(w, "Failed to process password", http.StatusInternalServerError)
 		return
 	}
 
-	// create user
-	u := user.User{
-		Email:    req.Email,
-		Password: string(hashed),
-		Role:     "user",
-	}
-
-	if err := h.userService.Create(&u); err != nil {
+	u, err := h.userService.Create(req.Email, string(hashed), "creator")
+	if err != nil {
 		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 
-	token, _ := GenerateToken(u.ID, u.Role)
+	token, _ := GenerateToken(u.ID.String(), u.Role)
+
 	json.NewEncoder(w).Encode(SignupResponse{Token: token})
 }
 
@@ -72,7 +68,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// find user
 	u, err := h.userService.FindByEmail(req.Email)
 	if err == sql.ErrNoRows {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
@@ -82,12 +77,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// compare password
 	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	token, _ := GenerateToken(u.ID, u.Role)
-	json.NewEncoder(w).Encode(SignupResponse{Token: token})
+	token, _ := GenerateToken(u.ID.String(), u.Role)
+
+	json.NewEncoder(w).Encode(LoginResponse{Token: token})
 }
