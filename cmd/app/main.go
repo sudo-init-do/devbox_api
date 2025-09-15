@@ -21,10 +21,10 @@ func startServer() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// Health
+	// Health check
 	mux.HandleFunc("/health", health.Handler)
 
-	// Initialize services
+	// Initialize services & handlers
 	userService := user.NewService(conn)
 	authHandler := auth.NewHandler(userService)
 
@@ -37,10 +37,12 @@ func startServer() {
 
 	// Wallet routes (protected by JWT)
 	mux.Handle("/wallet/balance", auth.JWTMiddleware(http.HandlerFunc(walletHandler.GetBalance)))
+	mux.Handle("/wallet/topup", auth.JWTMiddleware(http.HandlerFunc(walletHandler.TopUp))) 
 
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf(" Devbox API running on %s...\n", addr)
+	log.Printf("Devbox API running on %s...\n", addr)
 
+	// Start server
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
