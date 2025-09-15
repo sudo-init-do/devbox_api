@@ -27,27 +27,13 @@ type Transaction struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// GetBalance fetches the wallet balance for a user, creates wallet if missing
+// GetBalance fetches the wallet balance for a user
 func (s *Service) GetBalance(userID string) (int64, error) {
 	log.Printf("[WalletService] Fetching balance for user_id=%s", userID)
 
 	var balance int64
 	err := s.db.QueryRow(`SELECT balance FROM wallets WHERE user_id = $1`, userID).Scan(&balance)
-	if err == sql.ErrNoRows {
-		// Auto-create wallet
-		newWalletID := uuid.New().String()
-		log.Printf("[WalletService] No wallet found for user_id=%s, creating wallet_id=%s", userID, newWalletID)
-
-		_, createErr := s.db.Exec(
-			`INSERT INTO wallets (id, user_id, balance) VALUES ($1, $2, 0)`,
-			newWalletID, userID,
-		)
-		if createErr != nil {
-			log.Printf("[WalletService] Failed to create wallet for user_id=%s: %v", userID, createErr)
-			return 0, createErr
-		}
-		return 0, nil
-	} else if err != nil {
+	if err != nil {
 		log.Printf("[WalletService] Failed to fetch balance for user_id=%s: %v", userID, err)
 		return 0, err
 	}
@@ -63,16 +49,7 @@ func (s *Service) TopUp(userID string, amount int64, reference string) (*Transac
 	// 1. Get wallet
 	var walletID string
 	err := s.db.QueryRow(`SELECT id FROM wallets WHERE user_id = $1`, userID).Scan(&walletID)
-	if err == sql.ErrNoRows {
-		// Auto-create wallet if missing
-		walletID = uuid.New().String()
-		log.Printf("[WalletService] No wallet found for user_id=%s, creating wallet_id=%s", userID, walletID)
-		_, createErr := s.db.Exec(`INSERT INTO wallets (id, user_id, balance) VALUES ($1, $2, 0)`, walletID, userID)
-		if createErr != nil {
-			log.Printf("[WalletService] Failed to create wallet during top-up for user_id=%s: %v", userID, createErr)
-			return nil, 0, createErr
-		}
-	} else if err != nil {
+	if err != nil {
 		log.Printf("[WalletService] Wallet lookup failed for user_id=%s: %v", userID, err)
 		return nil, 0, err
 	}
@@ -116,4 +93,34 @@ func (s *Service) TopUp(userID string, amount int64, reference string) (*Transac
 		Reference: reference,
 		CreatedAt: time.Now(),
 	}, balance, nil
+}
+
+// GetTransactions fetches all wallet transactions for a user
+func (s *Service) GetTransactions(userID string) ([]Transaction, error) {
+	log.Printf("[WalletService] Fetching transactions for user_id=%s", userID)
+
+	rows, err := s.db.Query(`
+		SELECT t.id, t.wallet_id, t.amount, t.type, t.reference, t.created_at
+		FROM transactions t
+		JOIN wallets w ON t.wallet_id = w.id
+		WHERE w.user_id = $1
+		ORDER BY t.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[WalletService] Failed to fetch transactions: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var txs []Transaction
+	for rows.Next() {
+		var tx Transaction
+		if err := rows.Scan(&tx.ID, &tx.WalletID, &tx.Amount, &tx.Type, &tx.Reference, &tx.CreatedAt); err != nil {
+			log.Printf("[WalletService] Row scan failed: %v", err)
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+
+	return txs, nil
 }

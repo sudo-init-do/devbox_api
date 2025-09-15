@@ -37,12 +37,12 @@ func startServer() {
 
 	// Wallet routes (protected by JWT)
 	mux.Handle("/wallet/balance", auth.JWTMiddleware(http.HandlerFunc(walletHandler.GetBalance)))
-	mux.Handle("/wallet/topup", auth.JWTMiddleware(http.HandlerFunc(walletHandler.TopUp))) 
+	mux.Handle("/wallet/topup", auth.JWTMiddleware(http.HandlerFunc(walletHandler.TopUp)))
+	mux.Handle("/wallet/transactions", auth.JWTMiddleware(http.HandlerFunc(walletHandler.GetTransactions)))
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Devbox API running on %s...\n", addr)
 
-	// Start server
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

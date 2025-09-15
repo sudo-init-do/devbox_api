@@ -22,7 +22,7 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[WalletHandler] /wallet/balance called by user_id=%s", userID)
 
 	if userID == "" {
-		http.Error(w, "Unauthorized: missing user ID", http.StatusUnauthorized)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -33,19 +33,11 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[WalletHandler] Balance retrieved: user_id=%s, balance=%d", userID, balance)
-
-	w.Header().Set("Content-Type", "application/json")
+	log.Printf("[WalletHandler] Balance fetched successfully for user_id=%s: balance=%d", userID, balance)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"user_id": userID,
 		"balance": balance,
 	})
-}
-
-// TopUpRequest represents the expected request body for top-up operations.
-type TopUpRequest struct {
-	Amount    int    `json:"amount"`
-	Reference string `json:"reference"`
 }
 
 // POST /wallet/topup
@@ -58,15 +50,20 @@ func (h *Handler) TopUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type TopUpRequest struct {
+		Amount    int    `json:"amount"`
+		Reference string `json:"reference"`
+	}
 	var req TopUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[WalletHandler] Invalid request body: %v", err)
+		log.Printf("[WalletHandler] Invalid request body for user_id=%s: %v", userID, err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.Amount <= 0 || req.Reference == "" {
-		log.Printf("[WalletHandler] Invalid top-up request: amount=%d reference=%s", req.Amount, req.Reference)
+		log.Printf("[WalletHandler] Invalid top-up request for user_id=%s: amount=%d reference=%s",
+			userID, req.Amount, req.Reference)
 		http.Error(w, "Invalid top-up request", http.StatusBadRequest)
 		return
 	}
@@ -78,11 +75,36 @@ func (h *Handler) TopUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[WalletHandler] Top-up success: user_id=%s, new_balance=%d, tx_id=%s", userID, balance, tx.ID)
+	log.Printf("[WalletHandler] Top-up success for user_id=%s: new_balance=%d, tx_id=%s",
+		userID, balance, tx.ID)
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"user_id":     userID,
 		"transaction": tx,
 		"balance":     balance,
+	})
+}
+
+// GET /wallet/transactions
+func (h *Handler) GetTransactions(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	log.Printf("[WalletHandler] /wallet/transactions called by user_id=%s", userID)
+
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	txs, err := h.service.GetTransactions(userID)
+	if err != nil {
+		log.Printf("[WalletHandler] Failed to fetch transactions for user_id=%s: %v", userID, err)
+		http.Error(w, "Failed to fetch transactions", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[WalletHandler] Transactions fetched successfully for user_id=%s, count=%d", userID, len(txs))
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"user_id":      userID,
+		"transactions": txs,
 	})
 }
