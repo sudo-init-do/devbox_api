@@ -3,18 +3,24 @@ package auth
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/sudo-init-do/devbox_api/internal/user"
+	"github.com/sudo-init-do/devbox_api/internal/wallet"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Handler struct {
-	userService *user.Service
+	userService   *user.Service
+	walletService *wallet.Service
 }
 
-func NewHandler(userService *user.Service) *Handler {
-	return &Handler{userService: userService}
+func NewHandler(userService *user.Service, walletService *wallet.Service) *Handler {
+	return &Handler{
+		userService:   userService,
+		walletService: walletService,
+	}
 }
 
 type SignupRequest struct {
@@ -35,7 +41,7 @@ type LoginResponse struct {
 	Token string `json:"token"`
 }
 
-// Signup handles new user registration
+// Signup handles new user registration + wallet creation
 func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -55,12 +61,17 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _ := GenerateToken(u.ID.String(), u.Role)
+	if err := h.walletService.CreateWallet(u.ID.String()); err != nil {
+		log.Printf("[AuthHandler] Failed to create wallet for user_id=%s: %v", u.ID.String(), err)
+		http.Error(w, "Failed to create wallet", http.StatusInternalServerError)
+		return
+	}
 
+	token, _ := GenerateToken(u.ID.String(), u.Role)
 	json.NewEncoder(w).Encode(SignupResponse{Token: token})
 }
 
-// Login handles user login
+// Login authenticates user
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -83,6 +94,5 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token, _ := GenerateToken(u.ID.String(), u.Role)
-
 	json.NewEncoder(w).Encode(LoginResponse{Token: token})
 }

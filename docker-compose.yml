@@ -16,6 +16,7 @@ services:
       - "5432:5432"
     volumes:
       - devbox_api_postgres_data:/var/lib/postgresql/data
+      - ./migrate:/migrate   # <--- Mount migrations folder
 
   # ======================
   # Redis

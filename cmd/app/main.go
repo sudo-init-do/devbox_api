@@ -15,30 +15,24 @@ import (
 func startServer() {
 	port := "8080"
 
-	// Connect DB once
 	conn := db.ConnectDB()
-
-	// Setup routes
 	mux := http.NewServeMux()
 
-	// Health check
 	mux.HandleFunc("/health", health.Handler)
 
-	// Initialize services & handlers
 	userService := user.NewService(conn)
-	authHandler := auth.NewHandler(userService)
-
 	walletService := wallet.NewService(conn)
+
+	authHandler := auth.NewHandler(userService, walletService)
 	walletHandler := wallet.NewHandler(walletService)
 
-	// Auth routes
 	mux.HandleFunc("/auth/signup", authHandler.Signup)
 	mux.HandleFunc("/auth/login", authHandler.Login)
 
-	// Wallet routes (protected by JWT)
 	mux.Handle("/wallet/balance", auth.JWTMiddleware(http.HandlerFunc(walletHandler.GetBalance)))
 	mux.Handle("/wallet/topup", auth.JWTMiddleware(http.HandlerFunc(walletHandler.TopUp)))
 	mux.Handle("/wallet/transactions", auth.JWTMiddleware(http.HandlerFunc(walletHandler.GetTransactions)))
+	mux.Handle("/wallet/withdraw", auth.JWTMiddleware(http.HandlerFunc(walletHandler.Withdraw)))
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Devbox API running on %s...\n", addr)

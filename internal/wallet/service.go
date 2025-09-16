@@ -2,125 +2,135 @@ package wallet
 
 import (
 	"database/sql"
-	"log"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Service provides wallet-related operations
 type Service struct {
 	db *sql.DB
 }
 
-// NewService initializes wallet service
 func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
 }
 
-type Transaction struct {
-	ID        string    `json:"id"`
-	WalletID  string    `json:"wallet_id"`
-	Amount    int64     `json:"amount"`
-	Type      string    `json:"type"`
-	Reference string    `json:"reference"`
-	CreatedAt time.Time `json:"created_at"`
+// CreateWallet creates a wallet for a new user if not exists
+func (s *Service) CreateWallet(userID string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO wallets (id, user_id, balance, created_at, updated_at)
+		VALUES ($1, $2, 0, NOW(), NOW())
+		ON CONFLICT (user_id) DO NOTHING
+	`, uuid.New().String(), userID)
+	if err != nil {
+		return fmt.Errorf("failed to create wallet: %w", err)
+	}
+	return nil
 }
 
-// GetBalance fetches the wallet balance for a user
+// GetBalance returns the user’s wallet balance
 func (s *Service) GetBalance(userID string) (int64, error) {
-	log.Printf("[WalletService] Fetching balance for user_id=%s", userID)
-
 	var balance int64
-	err := s.db.QueryRow(`SELECT balance FROM wallets WHERE user_id = $1`, userID).Scan(&balance)
+	err := s.db.QueryRow("SELECT balance FROM wallets WHERE user_id=$1", userID).Scan(&balance)
 	if err != nil {
-		log.Printf("[WalletService] Failed to fetch balance for user_id=%s: %v", userID, err)
-		return 0, err
+		return 0, fmt.Errorf("failed to fetch balance: %w", err)
 	}
-
-	log.Printf("[WalletService] Balance for user_id=%s: %d", userID, balance)
 	return balance, nil
 }
 
-// TopUp inserts a credit transaction and updates balance
-func (s *Service) TopUp(userID string, amount int64, reference string) (*Transaction, int64, error) {
-	log.Printf("[WalletService] Starting top-up: user_id=%s, amount=%d, reference=%s", userID, amount, reference)
-
-	// 1. Get wallet
-	var walletID string
-	err := s.db.QueryRow(`SELECT id FROM wallets WHERE user_id = $1`, userID).Scan(&walletID)
+// TopUp adds coins to user wallet
+func (s *Service) TopUp(userID string, amount int64, reference string) error {
+	tx, err := s.db.Begin()
 	if err != nil {
-		log.Printf("[WalletService] Wallet lookup failed for user_id=%s: %v", userID, err)
-		return nil, 0, err
+		return err
 	}
-	log.Printf("[WalletService] Found wallet_id=%s for user_id=%s", walletID, userID)
+	defer tx.Rollback()
 
-	// 2. Insert transaction
-	txID := uuid.New().String()
-	_, err = s.db.Exec(`
-		INSERT INTO transactions (id, wallet_id, amount, type, reference)
-		VALUES ($1, $2, $3, $4, $5)`,
-		txID, walletID, amount, "credit", reference,
-	)
+	_, err = tx.Exec(`
+		UPDATE wallets SET balance = balance + $1, updated_at = NOW()
+		WHERE user_id = $2
+	`, amount, userID)
 	if err != nil {
-		log.Printf("[WalletService] Failed to insert transaction for wallet_id=%s: %v", walletID, err)
-		return nil, 0, err
+		return err
 	}
-	log.Printf("[WalletService] Inserted transaction tx_id=%s for wallet_id=%s", txID, walletID)
 
-	// 3. Update wallet balance
-	_, err = s.db.Exec(`UPDATE wallets SET balance = balance + $1 WHERE id = $2`, amount, walletID)
+	_, err = tx.Exec(`
+		INSERT INTO transactions (id, user_id, amount, type, reference, created_at)
+		VALUES ($1, $2, $3, 'topup', $4, $5)
+	`, uuid.New().String(), userID, amount, reference, time.Now())
 	if err != nil {
-		log.Printf("[WalletService] Balance update failed for wallet_id=%s: %v", walletID, err)
-		return nil, 0, err
+		return err
 	}
-	log.Printf("[WalletService] Balance updated successfully for wallet_id=%s", walletID)
 
-	// 4. Fetch new balance
-	var balance int64
-	err = s.db.QueryRow(`SELECT balance FROM wallets WHERE id = $1`, walletID).Scan(&balance)
-	if err != nil {
-		log.Printf("[WalletService] Failed to fetch updated balance for wallet_id=%s: %v", walletID, err)
-		return nil, 0, err
-	}
-	log.Printf("[WalletService] New balance for wallet_id=%s: %d", walletID, balance)
-
-	return &Transaction{
-		ID:        txID,
-		WalletID:  walletID,
-		Amount:    amount,
-		Type:      "credit",
-		Reference: reference,
-		CreatedAt: time.Now(),
-	}, balance, nil
+	return tx.Commit()
 }
 
-// GetTransactions fetches all wallet transactions for a user
-func (s *Service) GetTransactions(userID string) ([]Transaction, error) {
-	log.Printf("[WalletService] Fetching transactions for user_id=%s", userID)
+// Withdraw deducts coins from wallet
+func (s *Service) Withdraw(userID string, amount int64, reference string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
+	// check balance
+	var balance int64
+	err = tx.QueryRow("SELECT balance FROM wallets WHERE user_id=$1", userID).Scan(&balance)
+	if err != nil {
+		return err
+	}
+	if balance < amount {
+		return fmt.Errorf("insufficient balance")
+	}
+
+	_, err = tx.Exec(`
+		UPDATE wallets SET balance = balance - $1, updated_at = NOW()
+		WHERE user_id = $2
+	`, amount, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO transactions (id, user_id, amount, type, reference, created_at)
+		VALUES ($1, $2, $3, 'withdraw', $4, $5)
+	`, uuid.New().String(), userID, amount, reference, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetTransactions returns all wallet transactions
+func (s *Service) GetTransactions(userID string) ([]map[string]interface{}, error) {
 	rows, err := s.db.Query(`
-		SELECT t.id, t.wallet_id, t.amount, t.type, t.reference, t.created_at
-		FROM transactions t
-		JOIN wallets w ON t.wallet_id = w.id
-		WHERE w.user_id = $1
-		ORDER BY t.created_at DESC
+		SELECT id, amount, type, reference, created_at
+		FROM transactions WHERE user_id=$1 ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
-		log.Printf("[WalletService] Failed to fetch transactions: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	var txs []Transaction
+	var txs []map[string]interface{}
 	for rows.Next() {
-		var tx Transaction
-		if err := rows.Scan(&tx.ID, &tx.WalletID, &tx.Amount, &tx.Type, &tx.Reference, &tx.CreatedAt); err != nil {
-			log.Printf("[WalletService] Row scan failed: %v", err)
+		var id, ttype, ref string
+		var amount int64
+		var created time.Time
+
+		if err := rows.Scan(&id, &amount, &ttype, &ref, &created); err != nil {
 			return nil, err
 		}
-		txs = append(txs, tx)
-	}
 
+		txs = append(txs, map[string]interface{}{
+			"id":        id,
+			"amount":    amount,
+			"type":      ttype,
+			"reference": ref,
+			"created":   created,
+		})
+	}
 	return txs, nil
 }
